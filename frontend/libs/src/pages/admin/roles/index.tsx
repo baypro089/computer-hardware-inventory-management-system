@@ -1,0 +1,370 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import type { AppDispatch, RootState } from '@libs/src/store';
+import {
+  Box,
+  Chip,
+  Typography,
+  Alert,
+  Snackbar,
+  Tooltip,
+} from '@mui/material';
+import {
+  Add as AddIcon,
+  Security as SecurityIcon,
+  Refresh as RefreshIcon,
+} from '@mui/icons-material';
+import {
+  DataTable,
+  DeleteConfirmDialog,
+  PageHeader,
+  FilterBar,
+  StatusChip,
+  LoadingOverlay,
+  Column,
+  PermissionDeniedDialog,
+  PermissionGuard,
+} from '@libs/src/components/common';
+import { usePermissionGuard } from '@libs/src/hooks';
+import { PERMISSIONS } from '@libs/shared/constants/permissions.constant';
+import RoleFormDialog from '@libs/src/components/roles/RoleFormDialog';
+import {
+  fetchRoles,
+  createRole,
+  updateRole,
+  deleteRoles,
+  fetchAllPermissions,
+  clearError,
+} from '@libs/src/features/role/role.slice';
+import type { RoleResponse, CreateRoleDTO, UpdateRoleDTO } from '@libs/shared/types/roles.type';
+import { PORTAL_PERMISSION_VALUES } from '@libs/shared/constants/portal-permissions.constant';
+import { CacheService } from '@libs/src/services/cache.service';
+
+export default function RolesPage() {
+  return (
+    <PermissionGuard 
+      permission={PERMISSIONS.ROLE.VIEW}
+      fallbackPath="/admin"
+    >
+      <RolesPageContent />
+    </PermissionGuard>
+  );
+}
+
+function RolesPageContent() {
+  const dispatch = useDispatch<AppDispatch>();
+  const { guardAction, guardFn, permissionDialogProps } = usePermissionGuard();
+  const { roles, permissions, loading, error, operationLoading, operationError } = useSelector(
+    (state: RootState) => state.role
+  );
+
+  // Dialog states
+  const [openForm, setOpenForm] = useState(false);
+  const [openDelete, setOpenDelete] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<RoleResponse | null>(null);
+  const [selectedRows, setSelectedRows] = useState<RoleResponse[]>([]);
+
+  // Filter states
+  const [searchRoleCode, setSearchRoleCode] = useState('');
+  const [searchRoleName, setSearchRoleName] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+
+  // Pagination states
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+
+  // Snackbar
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: '',
+    severity: 'success' as 'success' | 'error',
+  });
+
+  // Load data on mount
+  useEffect(() => {
+    dispatch(fetchRoles({}));
+    dispatch(fetchAllPermissions());
+  }, [dispatch]);
+
+  // Handle errors
+  useEffect(() => {
+    if (error || operationError) {
+      setSnackbar({
+        open: true,
+        message: error || operationError || 'Đã xảy ra lỗi',
+        severity: 'error',
+      });
+      dispatch(clearError());
+    }
+  }, [error, operationError, dispatch]);
+
+  // Define table columns
+  const columns: Column<RoleResponse>[] = [
+    { 
+      id: 'role_code', 
+      label: 'Mã vai trò', 
+      minWidth: 120,
+      format: (value) => (
+        <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
+          {value}
+        </Typography>
+      ),
+    },
+    { id: 'role_name', label: 'Tên vai trò', minWidth: 200 },
+    {
+      id: 'is_active',
+      label: 'Trạng thái',
+      minWidth: 100,
+      align: 'center',
+      format: (value) => (
+        <StatusChip status={value ? 'active' : 'inactive'} showIcon />
+      ),
+    },
+  ];
+
+  // Handlers
+  const handleAdd = () => {
+    setSelectedRole(null);
+    setOpenForm(true);
+  };
+
+  const handleEdit = (row: RoleResponse) => {
+    setSelectedRole(row);
+    setOpenForm(true);
+  };
+
+  const handleDelete = (row: RoleResponse) => {
+    setSelectedRole(row);
+    setSelectedRows([row]);
+    setOpenDelete(true);
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedRows.length > 0) {
+      setOpenDelete(true);
+    }
+  };
+
+  const handleFormSubmit = async (data: CreateRoleDTO | UpdateRoleDTO, isEdit: boolean) => {
+    try {
+      if (isEdit && selectedRole) {
+        // Update
+        await dispatch(updateRole({ code: selectedRole.role_code, data: data as UpdateRoleDTO })).unwrap();
+        setSnackbar({
+          open: true,
+          message: 'Cập nhật vai trò thành công',
+          severity: 'success',
+        });
+      } else {
+        // Create
+        await dispatch(createRole(data as CreateRoleDTO)).unwrap();
+        setSnackbar({
+          open: true,
+          message: 'Tạo vai trò thành công',
+          severity: 'success',
+        });
+      }
+      setOpenForm(false);
+      dispatch(fetchRoles({}));
+    } catch (err: any) {
+      // Error handled by useEffect
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    try {
+      const codes = selectedRows.map((r) => r.role_code);
+      await dispatch(deleteRoles(codes)).unwrap();
+      setSnackbar({
+        open: true,
+        message: `Đã xóa thành công ${codes.length} vai trò`,
+        severity: 'success',
+      });
+      setOpenDelete(false);
+      setSelectedRows([]);
+      dispatch(fetchRoles({}));
+    } catch (err: any) {
+      // Error handled by useEffect
+    }
+  };
+
+  const handleRefresh = async () => {
+    await CacheService.refreshCache();
+    dispatch(fetchRoles({}));
+    dispatch(fetchAllPermissions());
+    setSnackbar({
+      open: true,
+      message: 'Dữ liệu đã được làm mới',
+      severity: 'success',
+    });
+  };
+
+  const handleClearFilters = () => {
+    setSearchRoleCode('');
+    setSearchRoleName('');
+    setFilterStatus('');
+  };
+
+  // Filter data
+  const filteredRoles = roles.filter((role) => {
+    const matchRoleCode =
+      searchRoleCode === '' ||
+      role.role_code.toLowerCase().includes(searchRoleCode.toLowerCase());
+    const matchRoleName =
+      searchRoleName === '' ||
+      role.role_name.toLowerCase().includes(searchRoleName.toLowerCase());
+    const matchStatus =
+      filterStatus === '' || role.is_active.toString() === filterStatus;
+    return matchRoleCode && matchRoleName && matchStatus;
+  });
+
+  const activeFiltersCount = 
+    (searchRoleCode ? 1 : 0) + 
+    (searchRoleName ? 1 : 0) + 
+    (filterStatus ? 1 : 0);
+
+  return (
+    <Box>
+      {/* Page Header */}
+      <PageHeader
+        title="Quản lý vai trò"
+        subtitle="Quản lý vai trò và quyền trong hệ thống"
+        breadcrumbs={[
+          { label: 'Vai trò', icon: <SecurityIcon fontSize="small" /> },
+        ]}
+        actions={[
+          {
+            label: 'Làm mới',
+            onClick: handleRefresh,
+            icon: <RefreshIcon />,
+            variant: 'outlined',
+          },
+          {
+            label: 'Xóa mục đã chọn',
+            onClick: guardAction(PERMISSIONS.ROLE.DELETE, handleBulkDelete),
+            variant: 'outlined',
+            color: 'error',
+            disabled: selectedRows.length === 0,
+            hidden: selectedRows.length === 0,
+          },
+          {
+            label: 'Thêm vai trò',
+            onClick: guardAction(PERMISSIONS.ROLE.CREATE, handleAdd),
+            icon: <AddIcon />,
+            variant: 'contained',
+          },
+        ]}
+        tags={[{ label: `${filteredRoles.length} Tổng` }]}
+      />
+
+      {/* Filter Bar */}
+      <FilterBar
+        searchFields={[
+          {
+            id: 'roleCode',
+            label: 'Mã vai trò',
+            placeholder: 'Tìm theo mã vai trò...',
+            value: searchRoleCode,
+          },
+          {
+            id: 'roleName',
+            label: 'Tên vai trò',
+            placeholder: 'Tìm theo tên vai trò...',
+            value: searchRoleName,
+          },
+        ]}
+        onSearchChange={(fieldId, value) => {
+          if (fieldId === 'roleCode') setSearchRoleCode(value);
+          if (fieldId === 'roleName') setSearchRoleName(value);
+        }}
+        filters={[
+          {
+            id: 'status',
+            label: 'Trạng thái',
+            type: 'select',
+            options: [
+              { value: 'true', label: 'Hoạt động' },
+              { value: 'false', label: 'Ngừng hoạt động' },
+            ],
+            value: filterStatus,
+          },
+        ]}
+        onFilterChange={(filterId, value) => {
+          if (filterId === 'status') setFilterStatus(value);
+        }}
+        onClearFilters={handleClearFilters}
+        activeFiltersCount={activeFiltersCount}
+      />
+
+
+      {/* Data Table */}
+      <DataTable
+        columns={columns}
+        data={filteredRoles.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)}
+        loading={loading}
+        page={page}
+        rowsPerPage={rowsPerPage}
+        totalRows={filteredRoles.length}
+        onPageChange={setPage}
+        onRowsPerPageChange={(value) => {
+          setRowsPerPage(value);
+          setPage(0);
+        }}
+        selectable
+        selectedRows={selectedRows}
+        onSelectionChange={setSelectedRows}
+        onEdit={guardFn(PERMISSIONS.ROLE.UPDATE, handleEdit)}
+        onDelete={guardFn(PERMISSIONS.ROLE.DELETE, handleDelete)}
+        rowKey="role_code"
+        emptyMessage="Không tìm thấy vai trò nào"
+      />
+
+      {/* Role Form Dialog */}
+      <RoleFormDialog
+        open={openForm}
+        onClose={() => setOpenForm(false)}
+        onSubmit={handleFormSubmit}
+        selectedRole={selectedRole}
+        permissions={permissions}
+        loading={operationLoading}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteConfirmDialog
+        open={openDelete}
+        onClose={() => setOpenDelete(false)}
+        onConfirm={handleDeleteConfirm}
+        title={`Xóa ${selectedRows.length} vai trò`}
+        message={
+          selectedRows.length === 1
+            ? `Bạn có chắc chắn muốn xóa vai trò "${selectedRows[0]?.role_name}"?`
+            : `Bạn có chắc chắn muốn xóa ${selectedRows.length} vai trò?`
+        }
+        loading={operationLoading}
+      />
+
+      {/* Loading Overlay */}
+      <LoadingOverlay open={loading && roles.length === 0} message="Đang tải danh sách vai trò..." />
+
+      <PermissionDeniedDialog {...permissionDialogProps} />
+
+      {/* Snackbar */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+          severity={snackbar.severity}
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+    </Box>
+  );
+}
