@@ -1,0 +1,136 @@
+import {
+  Column,
+  CreateDateColumn,
+  DeleteDateColumn,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+  OneToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
+import { User } from './user.entity';
+import { Department } from './department.entity';
+import { Position } from './position.entity';
+import { JobHistory } from './job-history.entity';
+import { LeaveRequest } from './leave-request.entity';
+import { Payslip } from './payslip.entity';
+import { Gender } from '@libs/shared/enums/gender.enum';
+import { Level } from '@libs/shared/enums/level.enum';
+import { Status } from '@libs/shared/enums/employee-status.enum';
+import { ResignationRequest } from './resignation-request.entity';
+import { Warehouse } from './warehouse.entity';
+
+@Entity('employees')
+export class Employee {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  //==== Thông tin cá nhân ====//
+  @Column({ type: 'uuid', name: 'user_id', nullable: true })
+  userId: string;
+
+  @Column({ length: 200, name: 'full_name' })
+  fullName: string;
+
+  @Column({ type: 'enum', enum: Gender, nullable: true })
+  gender: Gender;
+
+  @Column({ type: 'varchar', nullable: true })
+  photo: string;
+
+  @Column({ nullable: true, name: 'date_of_birth' })
+  dateOfBirth: Date;
+
+  @Column({ length: 20, name: 'identity_number', nullable: true })
+  identityNumber: string;
+
+  @Column({ name: 'identity_issued_date', nullable: true })
+  identityIssuedDate: Date;
+
+  @Column({ length: 200, name: 'identity_issued_place', nullable: true })
+  identityIssuedPlace: string;
+
+  @Column({ length: 50, nullable: true })
+  nationality: string;
+
+  @Column({ length: 20, nullable: true })
+  phone: string;
+
+  @Column({ length: 200, name: 'address_permanent', nullable: true })
+  addressPermanent: string;
+
+  @Column({ length: 200, name: 'address_current', nullable: true })
+  addressCurrent: string;
+
+  //==== Thông tin công việc ====//
+  @Column({ length: 50, name: 'employee_code', unique: true })
+  employeeCode: string;
+
+  @Column({ type: 'varchar', length: 500, nullable: true, name: 'cv_url' })
+  cvUrl: string; // URL lưu trữ CV (VD: https://storage.example.com/cvs/uuid.pdf)
+
+  @Column({ name: 'start_date' })
+  startDate: Date;
+
+  @Column({ type: 'enum', enum: Level, default: Level.JUNIOR })
+  level: Level;
+
+  @Column({ type: 'uuid', name: 'department_id' })
+  departmentId: string;
+
+  @Column({ type: 'uuid', name: 'current_position_id' })
+  currentPositionId: string;
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamp' })
+  updatedAt: Date;
+
+  @Column({ type: 'enum', enum: Status, default: Status.DRAFT })
+  status: Status;
+
+  @Column({ default: 12 })
+  totalAnnualLeave: number; // Tổng quỹ (Thường là 12)
+
+  @Column('float', { default: 0 })
+  usedAnnualLeave: number; // Số ngày đã dùng
+
+  // Getter ảo để tính số dư còn lại (không lưu DB)
+  get remainingLeave(): number {
+    return this.totalAnnualLeave - this.usedAnnualLeave;
+  }
+
+  // Số người phụ thuộc đã đăng ký giảm trừ gia cảnh
+  @Column('int', { default: 0 })
+  dependentCount: number;
+
+  @OneToOne(() => User, (user) => user.employee, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'user_id' })
+  user: User;
+
+  @ManyToOne(() => Department, (department) => department.employees)
+  @JoinColumn({ name: 'department_id' })
+  department: Department;
+
+  @ManyToOne(() => Position, (position) => position.employees)
+  @JoinColumn({ name: 'current_position_id' })
+  currentPosition: Position;
+
+  @OneToMany(() => JobHistory, (jobHistory) => jobHistory.employee)
+  jobHistories: JobHistory[];
+
+  @OneToMany(() => LeaveRequest, (leaveRequest) => leaveRequest.employee)
+  leaveRequests: LeaveRequest[];
+
+  @OneToMany(() => Payslip, (payslip) => payslip.employee)
+  payslips: Payslip[];
+
+  @OneToMany(() => ResignationRequest, (resignationRequest) => resignationRequest.employee)
+  resignationRequests: ResignationRequest[];
+
+  @OneToMany(() => Warehouse, (warehouse) => warehouse.manager)
+  managedWarehouses: Warehouse[];
+}
